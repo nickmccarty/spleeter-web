@@ -1,0 +1,15 @@
+# FastAPI and server
+fastapi==0.95.2
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+jinja2>=3.1.3
+
+# Audio processing - let spleeter control tensorflow version
+numpy<2.0.0
+
+# URL downloading
+yt-dlp>=2024.1.0
+
+soundfile==0.13.0
+librosa==0.11.0
