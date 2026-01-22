@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/wavesurfer.js@7"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -86,6 +87,12 @@
         @keyframes shimmer {
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
+        }
+        .crate-chevron {
+            transition: transform 0.2s ease;
+        }
+        .crate-row-header:hover {
+            background: rgba(255, 255, 255, 0.08);
         }
     </style>
 </head>
@@ -255,7 +262,7 @@
         </div>
 
         <!-- Results Section -->
-        <div id="results-section" class="hidden">
+        <div id="results-section" class="hidden mb-8">
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-2xl font-bold">Your Stems</h2>
                 <button onclick="resetForm()" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-300
@@ -288,6 +295,54 @@
             </div>
         </div>
 
+        <!-- Crate Section -->
+        <div id="crate-section" class="hidden glass rounded-2xl p-8 mb-8">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                        <span class="text-xl">📦</span>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white">Your Crate</h2>
+                </div>
+                <span id="crate-count" class="text-gray-400 text-sm">0 tracks</span>
+            </div>
+            <div id="crate-list" class="space-y-3">
+                <!-- Track rows inserted here -->
+            </div>
+        </div>
+
+        <!-- Samples Section -->
+        <div id="samples-section" class="hidden glass rounded-2xl p-8 mb-8">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                        <span class="text-xl">✂️</span>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white">Samples</h2>
+                </div>
+                <span id="samples-count" class="text-gray-400 text-sm">0 samples</span>
+            </div>
+            <div id="samples-list" class="grid gap-3">
+                <!-- Sample cards inserted here -->
+            </div>
+        </div>
+
+        <!-- Loops Section -->
+        <div id="loops-section" class="hidden glass rounded-2xl p-8 mb-8">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                        <span class="text-xl">🔁</span>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white">Loops</h2>
+                </div>
+                <span id="loops-count" class="text-gray-400 text-sm">0 loops</span>
+            </div>
+            <div id="loops-list" class="grid gap-3">
+                <!-- Loop cards inserted here -->
+            </div>
+        </div>
+
         <!-- Footer -->
         <footer class="text-center text-gray-500 text-sm mt-12">
             <p>Powered by <a href="https://github.com/deezer/spleeter" class="text-indigo-400 hover:underline">Spleeter</a></p>
@@ -311,6 +366,1063 @@
         let urlFetchData = null;  // Stores data from URL fetch for later use
         let wavesurfer = null;    // WaveSurfer instance for preview
         let stemWavesurfers = []; // WaveSurfer instances for stems
+
+        // Crate state
+        let crateData = [];
+        let expandedTracks = {};
+        let crateWavesurfers = {};
+
+        // Samples state
+        let samplesData = [];
+        let sampleWavesurfers = {};
+
+        // Loops state
+        let loopsData = [];
+        let loopWavesurfers = {};
+
+        // Load crate, samples, and loops on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCrate();
+            loadSamples();
+            loadLoops();
+        });
+
+        async function loadCrate() {
+            try {
+                const response = await fetch('/crate');
+                const data = await response.json();
+
+                if (data.has_output && data.tracks.length > 0) {
+                    crateData = data.tracks;
+                    renderCrate();
+                    document.getElementById('crate-section').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Failed to load crate:', error);
+            }
+        }
+
+        function renderCrate() {
+            const list = document.getElementById('crate-list');
+            list.innerHTML = '';
+
+            document.getElementById('crate-count').textContent =
+                `${crateData.length} track${crateData.length !== 1 ? 's' : ''}`;
+
+            crateData.forEach((track, index) => {
+                const row = document.createElement('div');
+                row.className = 'crate-row';
+                row.innerHTML = `
+                    <div class="crate-row-header glass rounded-xl p-4 cursor-pointer hover:border-indigo-500/50 border border-transparent transition-all"
+                         onclick="toggleCrateRow(${track.id}, this)">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-4">
+                                <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                                    <span class="text-xl">📁</span>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold text-white">${track.name}</h3>
+                                    <p class="text-sm text-gray-400">${track.stem_count} stems</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-6 text-sm">
+                                <div class="text-gray-400">
+                                    <span class="text-indigo-400 font-mono">${track.bpm ? Math.round(track.bpm) : '—'}</span> BPM
+                                </div>
+                                <div class="text-gray-400 font-mono">
+                                    ${track.duration ? formatTime(track.duration) : '—'}
+                                </div>
+                                <button onclick="event.stopPropagation(); deleteTrack(${track.id}, '${track.name.replace(/'/g, "\\'")}')"
+                                        class="p-2 rounded-lg bg-white/5 hover:bg-red-500/20 transition-colors group"
+                                        title="Delete track">
+                                    <svg class="w-4 h-4 text-gray-400 group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                                <svg class="w-5 h-5 text-gray-400 transform transition-transform crate-chevron"
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="crate-row-content hidden mt-3 ml-4 space-y-3" id="crate-stems-${track.id}">
+                        <!-- Stems loaded on expand -->
+                    </div>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        async function toggleCrateRow(trackId, headerEl) {
+            const content = document.getElementById(`crate-stems-${trackId}`);
+            const chevron = headerEl.querySelector('.crate-chevron');
+
+            if (content.classList.contains('hidden')) {
+                // Expand
+                content.classList.remove('hidden');
+                chevron.classList.add('rotate-180');
+
+                if (!expandedTracks[trackId]) {
+                    // Load stems on first expand
+                    await loadTrackStems(trackId);
+                    expandedTracks[trackId] = true;
+                }
+            } else {
+                // Collapse
+                content.classList.add('hidden');
+                chevron.classList.remove('rotate-180');
+            }
+        }
+
+        async function loadTrackStems(trackId) {
+            const container = document.getElementById(`crate-stems-${trackId}`);
+            container.innerHTML = '<div class="text-gray-400 text-sm p-4">Loading stems...</div>';
+
+            try {
+                const response = await fetch(`/crate/${trackId}`);
+                const track = await response.json();
+
+                container.innerHTML = '';
+                crateWavesurfers[trackId] = [];
+
+                // Display original track if available
+                if (track.original_filename) {
+                    const originalId = `crate-${trackId}-original`;
+                    const originalCard = document.createElement('div');
+                    originalCard.className = 'stem-card rounded-xl p-4 border border-cyan-500/30';
+                    originalCard.innerHTML = `
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                                    <span class="text-lg">💿</span>
+                                </div>
+                                <span class="font-medium text-cyan-400">Original Track</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button id="sample-btn-${originalId}"
+                                        class="hidden px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 transition-colors text-emerald-400 text-sm font-medium"
+                                        title="Download selected region as sample">
+                                    <span class="flex items-center space-x-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                        </svg>
+                                        <span id="sample-btn-text-${originalId}">Sample</span>
+                                    </span>
+                                </button>
+                                <div id="loop-controls-${originalId}" class="hidden flex items-center space-x-1 px-2 py-1 rounded-lg bg-purple-500/20">
+                                    <span class="text-purple-400 text-xs">🔁</span>
+                                    <select id="stem-loop-count-${originalId}"
+                                            class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
+                                        <option value="2">x2</option>
+                                        <option value="4" selected>x4</option>
+                                        <option value="8">x8</option>
+                                        <option value="16">x16</option>
+                                    </select>
+                                    <button id="stem-loop-btn-${originalId}"
+                                            class="text-purple-400 hover:text-purple-300 transition-colors"
+                                            title="Create loop from selection">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <a href="/output/${encodeURIComponent(track.name)}/${track.original_filename}"
+                                   download="${track.name} - original${track.original_filename.substring(track.original_filename.lastIndexOf('.'))}"
+                                   class="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                                   title="Download original">
+                                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500 mb-2">Click and drag on waveform to select a sample region</div>
+                        <div id="waveform-container-${originalId}" class="relative w-full">
+                            <div id="waveform-${originalId}" class="w-full h-16 rounded-lg overflow-hidden cursor-crosshair"></div>
+                            <div id="tooltip-${originalId}" class="absolute hidden pointer-events-none px-2 py-1 rounded bg-gray-900 text-white text-xs font-mono shadow-lg border border-white/20 whitespace-nowrap z-10" style="transform: translateX(-50%); top: -28px;"></div>
+                        </div>
+                        <div class="flex items-center justify-between mt-3">
+                            <button id="play-btn-${originalId}"
+                                    class="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center hover:scale-105 transition-transform">
+                                <svg id="play-icon-${originalId}" class="w-5 h-5 text-cyan-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                                <svg id="pause-icon-${originalId}" class="w-5 h-5 text-cyan-400 hidden" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                                </svg>
+                            </button>
+                            <div class="text-sm text-gray-400 font-mono">
+                                <span id="time-${originalId}">0:00</span> /
+                                <span id="duration-${originalId}">${track.duration ? formatTime(track.duration) : '—'}</span>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(originalCard);
+
+                    // Initialize Regions plugin for original
+                    const originalRegions = WaveSurfer.Regions.create();
+
+                    // Initialize WaveSurfer for original
+                    const originalWs = WaveSurfer.create({
+                        container: `#waveform-${originalId}`,
+                        waveColor: '#22d3d1',
+                        progressColor: '#06b6d4',
+                        cursorColor: '#ffffff',
+                        barWidth: 2,
+                        barGap: 1,
+                        barRadius: 2,
+                        height: 64,
+                        normalize: true,
+                        plugins: [originalRegions]
+                    });
+
+                    originalWs.load(`/output/${encodeURIComponent(track.name)}/${track.original_filename}`);
+                    originalWs.trackName = track.name;
+                    originalWs.stemName = 'original';
+
+                    let originalActiveRegion = null;
+
+                    originalWs.on('ready', () => {
+                        document.getElementById(`duration-${originalId}`).textContent = formatTime(originalWs.getDuration());
+                        originalRegions.enableDragSelection({ color: 'rgba(16, 185, 129, 0.3)' });
+
+                        // Setup tooltip
+                        const waveformEl = document.getElementById(`waveform-${originalId}`);
+                        const tooltip = document.getElementById(`tooltip-${originalId}`);
+                        const duration = originalWs.getDuration();
+
+                        waveformEl.addEventListener('mousemove', (e) => {
+                            const rect = waveformEl.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const percentage = x / rect.width;
+                            const time = percentage * duration;
+                            const mins = Math.floor(time / 60);
+                            const secs = Math.floor(time % 60);
+                            const ms = Math.floor((time % 1) * 1000);
+                            tooltip.textContent = `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+                            tooltip.style.left = `${x}px`;
+                            tooltip.classList.remove('hidden');
+                        });
+
+                        waveformEl.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+                    });
+
+                    originalRegions.on('region-created', (region) => {
+                        if (originalActiveRegion && originalActiveRegion !== region) originalActiveRegion.remove();
+                        originalActiveRegion = region;
+                        region.setOptions({ color: 'rgba(16, 185, 129, 0.3)', drag: true, resize: true });
+
+                        const sampleBtn = document.getElementById(`sample-btn-${originalId}`);
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${originalId}`);
+                        sampleBtn.classList.remove('hidden');
+                        sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+
+                        document.getElementById(`loop-controls-${originalId}`).classList.remove('hidden');
+                    });
+
+                    originalRegions.on('region-updated', (region) => {
+                        document.getElementById(`sample-btn-text-${originalId}`).textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                    });
+
+                    originalRegions.on('region-double-clicked', (region) => region.play());
+
+                    // Sample button handler for original
+                    document.getElementById(`sample-btn-${originalId}`).onclick = async function() {
+                        if (!originalActiveRegion) return;
+                        this.disabled = true;
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${originalId}`);
+                        const originalText = sampleBtnText.textContent;
+                        sampleBtnText.textContent = 'Creating...';
+
+                        try {
+                            const formData = new FormData();
+                            formData.append('track_name', originalWs.trackName);
+                            formData.append('stem_name', 'original');
+                            formData.append('start_time', originalActiveRegion.start);
+                            formData.append('end_time', originalActiveRegion.end);
+
+                            const response = await fetch('/sample', { method: 'POST', body: formData });
+                            if (response.ok) {
+                                const data = await response.json();
+                                const link = document.createElement('a');
+                                link.href = data.sample_url;
+                                link.download = data.sample_name;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                sampleBtnText.textContent = 'Downloaded!';
+                                setTimeout(() => sampleBtnText.textContent = originalText, 2000);
+                                loadSamples();
+                            } else {
+                                const error = await response.json();
+                                alert('Failed to create sample: ' + (error.detail || 'Unknown error'));
+                                sampleBtnText.textContent = originalText;
+                            }
+                        } catch (error) {
+                            alert('Failed to create sample: ' + error.message);
+                            sampleBtnText.textContent = originalText;
+                        } finally {
+                            this.disabled = false;
+                        }
+                    };
+
+                    // Loop button handler for original
+                    document.getElementById(`stem-loop-btn-${originalId}`).onclick = async function() {
+                        if (!originalActiveRegion) return;
+                        const loopCount = parseInt(document.getElementById(`stem-loop-count-${originalId}`).value);
+                        this.disabled = true;
+                        this.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30 60"/></svg>';
+
+                        await createLoop('stem', originalWs.trackName, 'original', originalActiveRegion.start, originalActiveRegion.end, loopCount);
+
+                        this.disabled = false;
+                        this.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                    };
+
+                    // Play/pause for original
+                    const playBtn = document.getElementById(`play-btn-${originalId}`);
+                    const playIcon = document.getElementById(`play-icon-${originalId}`);
+                    const pauseIcon = document.getElementById(`pause-icon-${originalId}`);
+
+                    playBtn.onclick = () => originalWs.playPause();
+                    originalWs.on('play', () => { playIcon.classList.add('hidden'); pauseIcon.classList.remove('hidden'); });
+                    originalWs.on('pause', () => { playIcon.classList.remove('hidden'); pauseIcon.classList.add('hidden'); });
+                    originalWs.on('audioprocess', () => document.getElementById(`time-${originalId}`).textContent = formatTime(originalWs.getCurrentTime()));
+                    originalWs.on('seeking', () => document.getElementById(`time-${originalId}`).textContent = formatTime(originalWs.getCurrentTime()));
+
+                    crateWavesurfers[trackId].push(originalWs);
+                }
+
+                track.stems.forEach((stem, index) => {
+                    const uniqueId = `crate-${trackId}-${index}`;
+                    const icon = stemIcons[stem.name] || stemIcons.other;
+
+                    const card = document.createElement('div');
+                    card.className = 'stem-card rounded-xl p-4';
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-lg ${icon.color} flex items-center justify-center">
+                                    <span class="text-lg">${icon.emoji}</span>
+                                </div>
+                                <span class="font-medium ${icon.text} capitalize">${stem.name}</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button id="sample-btn-${uniqueId}"
+                                        class="hidden px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 transition-colors text-emerald-400 text-sm font-medium"
+                                        title="Download selected region as sample">
+                                    <span class="flex items-center space-x-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                        </svg>
+                                        <span id="sample-btn-text-${uniqueId}">Sample</span>
+                                    </span>
+                                </button>
+                                <div id="loop-controls-${uniqueId}" class="hidden flex items-center space-x-1 px-2 py-1 rounded-lg bg-purple-500/20">
+                                    <span class="text-purple-400 text-xs">🔁</span>
+                                    <select id="stem-loop-count-${uniqueId}"
+                                            class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
+                                        <option value="2">x2</option>
+                                        <option value="4" selected>x4</option>
+                                        <option value="8">x8</option>
+                                        <option value="16">x16</option>
+                                    </select>
+                                    <button id="stem-loop-btn-${uniqueId}"
+                                            class="text-purple-400 hover:text-purple-300 transition-colors"
+                                            title="Create loop from selection">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <a href="/output/${encodeURIComponent(track.name)}/${stem.filename}"
+                                   download="${track.name} - ${stem.name}.wav"
+                                   class="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                                   title="Download full stem">
+                                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500 mb-2">Click and drag on waveform to select a sample region</div>
+                        <div id="waveform-container-${uniqueId}" class="relative w-full">
+                            <div id="waveform-${uniqueId}" class="w-full h-16 rounded-lg overflow-hidden cursor-crosshair"></div>
+                            <div id="tooltip-${uniqueId}" class="absolute hidden pointer-events-none px-2 py-1 rounded bg-gray-900 text-white text-xs font-mono shadow-lg border border-white/20 whitespace-nowrap z-10" style="transform: translateX(-50%); top: -28px;"></div>
+                        </div>
+                        <div class="flex items-center justify-between mt-3">
+                            <button id="play-btn-${uniqueId}"
+                                    class="w-10 h-10 rounded-full ${icon.color} flex items-center justify-center hover:scale-105 transition-transform">
+                                <svg id="play-icon-${uniqueId}" class="w-5 h-5 ${icon.text}" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                                <svg id="pause-icon-${uniqueId}" class="w-5 h-5 ${icon.text} hidden" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                                </svg>
+                            </button>
+                            <div class="text-sm text-gray-400 font-mono">
+                                <span id="time-${uniqueId}">0:00</span> /
+                                <span id="duration-${uniqueId}">${stem.duration ? formatTime(stem.duration) : '—'}</span>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+
+                    // Initialize Regions plugin
+                    const regions = WaveSurfer.Regions.create();
+
+                    // Initialize WaveSurfer with regions plugin
+                    const ws = WaveSurfer.create({
+                        container: `#waveform-${uniqueId}`,
+                        waveColor: getComputedColor(icon.text),
+                        progressColor: adjustColor(getComputedColor(icon.text), 1.3),
+                        cursorColor: '#ffffff',
+                        barWidth: 2,
+                        barGap: 1,
+                        barRadius: 2,
+                        height: 64,
+                        normalize: true,
+                        plugins: [regions]
+                    });
+
+                    ws.load(`/output/${encodeURIComponent(track.name)}/${stem.filename}`);
+
+                    // Store track/stem info on the wavesurfer instance for later use
+                    ws.trackName = track.name;
+                    ws.stemName = stem.name;
+
+                    // Track current region
+                    let activeRegion = null;
+
+                    // Enable region creation on drag
+                    ws.on('ready', () => {
+                        document.getElementById(`duration-${uniqueId}`).textContent = formatTime(ws.getDuration());
+
+                        // Enable drag selection to create regions
+                        regions.enableDragSelection({
+                            color: 'rgba(16, 185, 129, 0.3)'  // Emerald with transparency
+                        });
+
+                        // Setup time tooltip on hover
+                        const waveformContainer = document.getElementById(`waveform-container-${uniqueId}`);
+                        const waveformEl = document.getElementById(`waveform-${uniqueId}`);
+                        const tooltip = document.getElementById(`tooltip-${uniqueId}`);
+                        const duration = ws.getDuration();
+
+                        waveformEl.addEventListener('mousemove', (e) => {
+                            const rect = waveformEl.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const percentage = x / rect.width;
+                            const time = percentage * duration;
+
+                            // Format time with milliseconds for precision
+                            const mins = Math.floor(time / 60);
+                            const secs = Math.floor(time % 60);
+                            const ms = Math.floor((time % 1) * 1000);
+                            tooltip.textContent = `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+
+                            // Position tooltip at cursor
+                            tooltip.style.left = `${x}px`;
+                            tooltip.classList.remove('hidden');
+                        });
+
+                        waveformEl.addEventListener('mouseleave', () => {
+                            tooltip.classList.add('hidden');
+                        });
+                    });
+
+                    // Handle region creation
+                    regions.on('region-created', (region) => {
+                        // Remove previous region if exists
+                        if (activeRegion && activeRegion !== region) {
+                            activeRegion.remove();
+                        }
+                        activeRegion = region;
+
+                        // Update region style
+                        region.setOptions({
+                            color: 'rgba(16, 185, 129, 0.3)',
+                            drag: true,
+                            resize: true
+                        });
+
+                        // Show sample button with duration
+                        const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        sampleBtn.classList.remove('hidden');
+                        const duration = region.end - region.start;
+                        sampleBtnText.textContent = `Sample (${duration.toFixed(2)}s)`;
+
+                        // Show loop controls
+                        document.getElementById(`loop-controls-${uniqueId}`).classList.remove('hidden');
+                    });
+
+                    // Update button when region is updated (dragged/resized)
+                    regions.on('region-updated', (region) => {
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        const duration = region.end - region.start;
+                        sampleBtnText.textContent = `Sample (${duration.toFixed(2)}s)`;
+                    });
+
+                    // Double-click region to play it
+                    regions.on('region-double-clicked', (region) => {
+                        region.play();
+                    });
+
+                    // Sample button click handler
+                    const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
+                    sampleBtn.onclick = async () => {
+                        if (!activeRegion) return;
+
+                        sampleBtn.disabled = true;
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        const originalText = sampleBtnText.textContent;
+                        sampleBtnText.textContent = 'Creating...';
+
+                        try {
+                            const formData = new FormData();
+                            formData.append('track_name', ws.trackName);
+                            formData.append('stem_name', ws.stemName);
+                            formData.append('start_time', activeRegion.start);
+                            formData.append('end_time', activeRegion.end);
+
+                            const response = await fetch('/sample', {
+                                method: 'POST',
+                                body: formData
+                            });
+
+                            if (response.ok) {
+                                const data = await response.json();
+                                // Trigger download
+                                const link = document.createElement('a');
+                                link.href = data.sample_url;
+                                link.download = data.sample_name;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                sampleBtnText.textContent = 'Downloaded!';
+                                setTimeout(() => {
+                                    sampleBtnText.textContent = originalText;
+                                }, 2000);
+                                // Refresh samples list
+                                loadSamples();
+                            } else {
+                                const error = await response.json();
+                                alert('Failed to create sample: ' + (error.detail || 'Unknown error'));
+                                sampleBtnText.textContent = originalText;
+                            }
+                        } catch (error) {
+                            alert('Failed to create sample: ' + error.message);
+                            sampleBtnText.textContent = originalText;
+                        } finally {
+                            sampleBtn.disabled = false;
+                        }
+                    };
+
+                    // Stem loop button click handler
+                    const stemLoopBtn = document.getElementById(`stem-loop-btn-${uniqueId}`);
+                    const stemLoopCountSelect = document.getElementById(`stem-loop-count-${uniqueId}`);
+
+                    stemLoopBtn.onclick = async () => {
+                        if (!activeRegion) return;
+
+                        const loopCount = parseInt(stemLoopCountSelect.value);
+                        stemLoopBtn.disabled = true;
+                        stemLoopBtn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30 60"/></svg>';
+
+                        const success = await createLoop(
+                            'stem',
+                            ws.trackName,
+                            ws.stemName,
+                            activeRegion.start,
+                            activeRegion.end,
+                            loopCount
+                        );
+
+                        stemLoopBtn.disabled = false;
+                        stemLoopBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                    };
+
+                    // Play/pause
+                    const playBtn = document.getElementById(`play-btn-${uniqueId}`);
+                    const playIcon = document.getElementById(`play-icon-${uniqueId}`);
+                    const pauseIcon = document.getElementById(`pause-icon-${uniqueId}`);
+
+                    playBtn.onclick = () => ws.playPause();
+
+                    ws.on('play', () => {
+                        playIcon.classList.add('hidden');
+                        pauseIcon.classList.remove('hidden');
+                    });
+
+                    ws.on('pause', () => {
+                        playIcon.classList.remove('hidden');
+                        pauseIcon.classList.add('hidden');
+                    });
+
+                    ws.on('audioprocess', () => {
+                        document.getElementById(`time-${uniqueId}`).textContent = formatTime(ws.getCurrentTime());
+                    });
+
+                    ws.on('seeking', () => {
+                        document.getElementById(`time-${uniqueId}`).textContent = formatTime(ws.getCurrentTime());
+                    });
+
+                    crateWavesurfers[trackId].push(ws);
+                });
+            } catch (error) {
+                container.innerHTML = '<div class="text-red-400 text-sm p-4">Failed to load stems</div>';
+            }
+        }
+
+        async function deleteTrack(trackId, trackName) {
+            if (!confirm(`Delete "${trackName}" and all its stems?\n\nThis cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/crate/${trackId}`, { method: 'DELETE' });
+
+                if (response.ok) {
+                    // Clean up wavesurfers for this track
+                    if (crateWavesurfers[trackId]) {
+                        crateWavesurfers[trackId].forEach(ws => ws.destroy());
+                        delete crateWavesurfers[trackId];
+                    }
+                    delete expandedTracks[trackId];
+
+                    // Remove from local data and re-render
+                    crateData = crateData.filter(t => t.id !== trackId);
+
+                    if (crateData.length === 0) {
+                        document.getElementById('crate-section').classList.add('hidden');
+                    } else {
+                        renderCrate();
+                    }
+                } else {
+                    const error = await response.json();
+                    alert('Failed to delete track: ' + (error.detail || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to delete track: ' + error.message);
+            }
+        }
+
+        // Samples functions
+        async function loadSamples() {
+            try {
+                const response = await fetch('/samples');
+                const data = await response.json();
+
+                if (data.has_samples && data.samples.length > 0) {
+                    samplesData = data.samples;
+                    renderSamples();
+                    document.getElementById('samples-section').classList.remove('hidden');
+                } else {
+                    document.getElementById('samples-section').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error('Failed to load samples:', error);
+            }
+        }
+
+        function renderSamples() {
+            const list = document.getElementById('samples-list');
+            list.innerHTML = '';
+
+            document.getElementById('samples-count').textContent =
+                `${samplesData.length} sample${samplesData.length !== 1 ? 's' : ''}`;
+
+            samplesData.forEach((sample, index) => {
+                const uniqueId = `sample-${sample.id}`;
+                const icon = stemIcons[sample.stem_name] || stemIcons.other;
+
+                const card = document.createElement('div');
+                card.className = 'stem-card rounded-xl p-4 overflow-hidden';
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-3 gap-3">
+                        <div class="flex items-center space-x-3 min-w-0 flex-1">
+                            <div class="w-10 h-10 rounded-lg ${icon.color} flex items-center justify-center flex-shrink-0">
+                                <span class="text-lg">${icon.emoji}</span>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <div class="font-medium text-white truncate">${sample.track_name}</div>
+                                <div class="text-xs text-gray-400 truncate">
+                                    <span class="${icon.text} capitalize">${sample.stem_name}</span>
+                                    <span class="text-gray-500 ml-2">${sample.start_time.toFixed(2)}s - ${sample.end_time.toFixed(2)}s</span>
+                                    <span class="text-emerald-400 ml-2">(${sample.duration.toFixed(2)}s)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2 flex-shrink-0">
+                            <div class="flex items-center space-x-1 bg-purple-500/10 rounded-lg px-2 py-1">
+                                <span class="text-purple-400 text-xs">🔁</span>
+                                <select id="loop-count-${uniqueId}"
+                                        class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
+                                    <option value="2">x2</option>
+                                    <option value="4" selected>x4</option>
+                                    <option value="8">x8</option>
+                                    <option value="16">x16</option>
+                                </select>
+                                <button id="loop-btn-${uniqueId}"
+                                        class="text-purple-400 hover:text-purple-300 transition-colors"
+                                        title="Create loop">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <a href="/samples-files/${encodeURIComponent(sample.filename)}"
+                               download="${sample.filename}"
+                               class="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                               title="Download sample">
+                                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                </svg>
+                            </a>
+                            <button onclick="deleteSample(${sample.id}, '${sample.filename.replace(/'/g, "\\'")}')"
+                                    class="p-2 rounded-lg bg-white/5 hover:bg-red-500/20 transition-colors group"
+                                    title="Delete sample">
+                                <svg class="w-5 h-5 text-gray-400 group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="waveform-${uniqueId}" class="w-full h-12 rounded-lg overflow-hidden"></div>
+                    <div class="flex items-center justify-between mt-3">
+                        <button id="play-btn-${uniqueId}"
+                                class="w-8 h-8 rounded-full ${icon.color} flex items-center justify-center hover:scale-105 transition-transform">
+                            <svg id="play-icon-${uniqueId}" class="w-4 h-4 ${icon.text}" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg id="pause-icon-${uniqueId}" class="w-4 h-4 ${icon.text} hidden" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                            </svg>
+                        </button>
+                        <div class="text-xs text-gray-400 font-mono">
+                            <span id="time-${uniqueId}">0:00</span> /
+                            <span id="duration-${uniqueId}">${formatTime(sample.duration)}</span>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(card);
+
+                // Initialize WaveSurfer for this sample
+                const ws = WaveSurfer.create({
+                    container: `#waveform-${uniqueId}`,
+                    waveColor: getComputedColor(icon.text),
+                    progressColor: adjustColor(getComputedColor(icon.text), 1.3),
+                    cursorColor: '#ffffff',
+                    barWidth: 2,
+                    barGap: 1,
+                    barRadius: 2,
+                    height: 48,
+                    normalize: true
+                });
+
+                ws.load(`/samples-files/${encodeURIComponent(sample.filename)}`);
+
+                // Play/pause
+                const playBtn = document.getElementById(`play-btn-${uniqueId}`);
+                const playIcon = document.getElementById(`play-icon-${uniqueId}`);
+                const pauseIcon = document.getElementById(`pause-icon-${uniqueId}`);
+
+                playBtn.onclick = () => ws.playPause();
+
+                ws.on('play', () => {
+                    playIcon.classList.add('hidden');
+                    pauseIcon.classList.remove('hidden');
+                });
+
+                ws.on('pause', () => {
+                    playIcon.classList.remove('hidden');
+                    pauseIcon.classList.add('hidden');
+                });
+
+                ws.on('audioprocess', () => {
+                    document.getElementById(`time-${uniqueId}`).textContent = formatTime(ws.getCurrentTime());
+                });
+
+                ws.on('seeking', () => {
+                    document.getElementById(`time-${uniqueId}`).textContent = formatTime(ws.getCurrentTime());
+                });
+
+                ws.on('ready', () => {
+                    document.getElementById(`duration-${uniqueId}`).textContent = formatTime(ws.getDuration());
+                });
+
+                // Loop button handler
+                const loopBtn = document.getElementById(`loop-btn-${uniqueId}`);
+                const loopCountSelect = document.getElementById(`loop-count-${uniqueId}`);
+
+                loopBtn.onclick = async () => {
+                    const loopCount = parseInt(loopCountSelect.value);
+                    loopBtn.disabled = true;
+                    loopBtn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30 60"/></svg>';
+
+                    // For samples, we use the full sample (start_time=0, end_time=duration)
+                    // But we pass the original track info for the loop filename
+                    const success = await createLoop(
+                        'sample',
+                        sample.track_name,
+                        sample.stem_name,
+                        sample.start_time,
+                        sample.end_time,
+                        loopCount
+                    );
+
+                    loopBtn.disabled = false;
+                    loopBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                };
+
+                sampleWavesurfers[sample.id] = ws;
+            });
+        }
+
+        async function deleteSample(sampleId, filename) {
+            if (!confirm(`Delete sample "${filename}"?\n\nThis cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/samples/${sampleId}`, { method: 'DELETE' });
+
+                if (response.ok) {
+                    // Clean up wavesurfer
+                    if (sampleWavesurfers[sampleId]) {
+                        sampleWavesurfers[sampleId].destroy();
+                        delete sampleWavesurfers[sampleId];
+                    }
+
+                    // Remove from local data and re-render
+                    samplesData = samplesData.filter(s => s.id !== sampleId);
+
+                    if (samplesData.length === 0) {
+                        document.getElementById('samples-section').classList.add('hidden');
+                    } else {
+                        renderSamples();
+                    }
+                } else {
+                    const error = await response.json();
+                    alert('Failed to delete sample: ' + (error.detail || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to delete sample: ' + error.message);
+            }
+        }
+
+        // Loops functions
+        async function loadLoops() {
+            try {
+                const response = await fetch('/loops');
+                const data = await response.json();
+
+                if (data.has_loops && data.loops.length > 0) {
+                    loopsData = data.loops;
+                    renderLoops();
+                    document.getElementById('loops-section').classList.remove('hidden');
+                } else {
+                    document.getElementById('loops-section').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error('Failed to load loops:', error);
+            }
+        }
+
+        function renderLoops() {
+            const list = document.getElementById('loops-list');
+            list.innerHTML = '';
+
+            document.getElementById('loops-count').textContent =
+                `${loopsData.length} loop${loopsData.length !== 1 ? 's' : ''}`;
+
+            loopsData.forEach((loop, index) => {
+                const uniqueId = `loop-${loop.id}`;
+                const icon = stemIcons[loop.stem_name] || stemIcons.other;
+
+                const card = document.createElement('div');
+                card.className = 'stem-card rounded-xl p-4 overflow-hidden';
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-3 gap-3">
+                        <div class="flex items-center space-x-3 min-w-0 flex-1">
+                            <div class="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                                <span class="text-lg">🔁</span>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <div class="font-medium text-white truncate">${loop.track_name}</div>
+                                <div class="text-xs text-gray-400 truncate">
+                                    <span class="${icon.text} capitalize">${loop.stem_name}</span>
+                                    <span class="text-gray-500 ml-2">${loop.start_time.toFixed(2)}s - ${loop.end_time.toFixed(2)}s</span>
+                                    <span class="text-purple-400 ml-2">x${loop.loop_count}</span>
+                                    <span class="text-gray-500 ml-2">(${loop.duration.toFixed(2)}s total)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2 flex-shrink-0">
+                            <a href="/loops-files/${encodeURIComponent(loop.filename)}"
+                               download="${loop.filename}"
+                               class="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                               title="Download loop">
+                                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                </svg>
+                            </a>
+                            <button onclick="deleteLoop(${loop.id}, '${loop.filename.replace(/'/g, "\\'")}')"
+                                    class="p-2 rounded-lg bg-white/5 hover:bg-red-500/20 transition-colors group"
+                                    title="Delete loop">
+                                <svg class="w-5 h-5 text-gray-400 group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="waveform-${uniqueId}" class="w-full h-12 rounded-lg overflow-hidden"></div>
+                    <div class="flex items-center justify-between mt-3">
+                        <button id="play-btn-${uniqueId}"
+                                class="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center hover:scale-105 transition-transform">
+                            <svg id="play-icon-${uniqueId}" class="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg id="pause-icon-${uniqueId}" class="w-4 h-4 text-purple-400 hidden" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                            </svg>
+                        </button>
+                        <div class="text-xs text-gray-400 font-mono">
+                            <span id="time-${uniqueId}">0:00</span> /
+                            <span id="duration-${uniqueId}">${formatTime(loop.duration)}</span>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(card);
+
+                // Initialize WaveSurfer for this loop
+                const ws = WaveSurfer.create({
+                    container: `#waveform-${uniqueId}`,
+                    waveColor: '#c084fc',
+                    progressColor: '#a855f7',
+                    cursorColor: '#ffffff',
+                    barWidth: 2,
+                    barGap: 1,
+                    barRadius: 2,
+                    height: 48,
+                    normalize: true
+                });
+
+                ws.load(`/loops-files/${encodeURIComponent(loop.filename)}`);
+
+                // Play/pause
+                const playBtn = document.getElementById(`play-btn-${uniqueId}`);
+                const playIcon = document.getElementById(`play-icon-${uniqueId}`);
+                const pauseIcon = document.getElementById(`pause-icon-${uniqueId}`);
+
+                playBtn.onclick = () => ws.playPause();
+
+                ws.on('play', () => {
+                    playIcon.classList.add('hidden');
+                    pauseIcon.classList.remove('hidden');
+                });
+
+                ws.on('pause', () => {
+                    playIcon.classList.remove('hidden');
+                    pauseIcon.classList.add('hidden');
+                });
+
+                ws.on('audioprocess', () => {
+                    document.getElementById(`time-${uniqueId}`).textContent = formatTime(ws.getCurrentTime());
+                });
+
+                ws.on('seeking', () => {
+                    document.getElementById(`time-${uniqueId}`).textContent = formatTime(ws.getCurrentTime());
+                });
+
+                ws.on('ready', () => {
+                    document.getElementById(`duration-${uniqueId}`).textContent = formatTime(ws.getDuration());
+                });
+
+                loopWavesurfers[loop.id] = ws;
+            });
+        }
+
+        async function deleteLoop(loopId, filename) {
+            if (!confirm(`Delete loop "${filename}"?\n\nThis cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/loops/${loopId}`, { method: 'DELETE' });
+
+                if (response.ok) {
+                    // Clean up wavesurfer
+                    if (loopWavesurfers[loopId]) {
+                        loopWavesurfers[loopId].destroy();
+                        delete loopWavesurfers[loopId];
+                    }
+
+                    // Remove from local data and re-render
+                    loopsData = loopsData.filter(l => l.id !== loopId);
+
+                    if (loopsData.length === 0) {
+                        document.getElementById('loops-section').classList.add('hidden');
+                    } else {
+                        renderLoops();
+                    }
+                } else {
+                    const error = await response.json();
+                    alert('Failed to delete loop: ' + (error.detail || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to delete loop: ' + error.message);
+            }
+        }
+
+        async function createLoop(sourceType, trackName, stemName, startTime, endTime, loopCount) {
+            const formData = new FormData();
+            formData.append('source_type', sourceType);
+            formData.append('track_name', trackName);
+            formData.append('stem_name', stemName);
+            formData.append('start_time', startTime);
+            formData.append('end_time', endTime);
+            formData.append('loop_count', loopCount);
+
+            try {
+                const response = await fetch('/loop', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    // Trigger download
+                    const link = document.createElement('a');
+                    link.href = data.loop_url;
+                    link.download = data.loop_name;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    // Refresh loops list
+                    loadLoops();
+                    return true;
+                } else {
+                    const error = await response.json();
+                    alert('Failed to create loop: ' + (error.detail || 'Unknown error'));
+                    return false;
+                }
+            } catch (error) {
+                alert('Failed to create loop: ' + error.message);
+                return false;
+            }
+        }
 
         function switchTab(tab) {
             currentTab = tab;
@@ -726,6 +1838,9 @@
                 stemWavesurfers.push(ws);
                 stemIndex++;
             }
+
+            // Refresh crate to include the new track
+            loadCrate();
         }
 
         // Helper to get color from Tailwind class
@@ -768,16 +1883,11 @@
         }
 
         function resetForm() {
-            // Clean up job
-            if (currentJobId) {
-                fetch(`/job/${currentJobId}`, { method: 'DELETE' }).catch(() => {});
-                currentJobId = null;
-            }
+            // Don't delete jobs - tracks should persist in the crate
+            // Just clear the current job reference
+            currentJobId = null;
 
-            // Clean up URL fetch data
-            if (urlFetchData && urlFetchData.job_id) {
-                fetch(`/job/${urlFetchData.job_id}`, { method: 'DELETE' }).catch(() => {});
-            }
+            // Clean up URL fetch data (but don't delete - it might be in crate now)
             urlFetchData = null;
             previewReady = false;
 
@@ -788,6 +1898,13 @@
             }
             stemWavesurfers.forEach(ws => ws.destroy());
             stemWavesurfers = [];
+
+            // Clean up crate wavesurfers (keep them around but stop playback)
+            Object.values(crateWavesurfers).forEach(wsArray => {
+                wsArray.forEach(ws => {
+                    if (ws.isPlaying()) ws.pause();
+                });
+            });
 
             // Reset UI
             document.getElementById('upload-section').classList.remove('hidden');
