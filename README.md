@@ -31,10 +31,13 @@ A sleek, modern web application that uses AI to separate audio tracks into indiv
 - **Delete tracks** when no longer needed
 
 ### Samples
-- **Region selection** - click and drag on any stem waveform to select a portion
+- **Region selection** - Shift + drag on any waveform to select a portion
+- **Visual feedback** - see the selection region in real-time as you drag
 - **Precision tooltip** showing time in M:SS.mmm format for accurate slicing
+- **Loop preview** - instantly preview your selection on loop before saving
 - **One-click extraction** - save selected regions as new audio files
 - **Sample library** - all created samples displayed with playback controls
+- **Keyboard shortcuts** - Esc to clear selection and stop loop preview
 
 ### Loops
 - **Create loops** from any stem or sample region
@@ -123,10 +126,13 @@ Then open http://localhost:8000 in your browser.
 ### Creating Samples
 
 1. Expand a track in the Crate to view stems
-2. Click and drag on any stem waveform to select a region
+2. **Shift + drag** on any waveform to select a region (visual preview shows in real-time)
 3. Use the precision tooltip (M:SS.mmm) for accurate timing
-4. Click the **Sample** button to extract and download the selection
-5. All samples appear in the **Samples** section
+4. Click the **loop icon** in the popup to preview your selection on loop
+5. Drag the region edges to fine-tune while listening
+6. Click the **Sample** button to extract and download the selection
+7. Press **Esc** to clear selection or stop loop preview
+8. All samples appear in the **Samples** section
 
 ### Creating Loops
 

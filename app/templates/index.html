@@ -380,6 +380,420 @@
         let loopsData = [];
         let loopWavesurfers = {};
 
+        // Track active regions for Esc key clearing
+        let activeRegions = {};
+
+        // Track loop preview state
+        let loopPreviewState = {
+            isLooping: false,
+            currentId: null,
+            wavesurfer: null
+        };
+
+        // Stop loop preview
+        function stopLoopPreview() {
+            if (loopPreviewState.isLooping && loopPreviewState.wavesurfer) {
+                loopPreviewState.wavesurfer.pause();
+                loopPreviewState.isLooping = false;
+                // Update UI
+                const popup = document.getElementById(`loop-popup-${loopPreviewState.currentId}`);
+                if (popup) {
+                    popup.querySelector('.loop-play-btn').classList.remove('hidden');
+                    popup.querySelector('.loop-stop-btn').classList.add('hidden');
+                }
+                loopPreviewState.currentId = null;
+                loopPreviewState.wavesurfer = null;
+            }
+        }
+
+        // Global Escape key handler to clear regions and stop loop preview
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Stop any loop preview
+                stopLoopPreview();
+
+                // Clear all regions and hide popups
+                Object.keys(activeRegions).forEach(id => {
+                    if (activeRegions[id]) {
+                        activeRegions[id].remove();
+                        activeRegions[id] = null;
+                        const sampleBtn = document.getElementById(`sample-btn-${id}`);
+                        const loopControls = document.getElementById(`loop-controls-${id}`);
+                        const loopPopup = document.getElementById(`loop-popup-${id}`);
+                        if (sampleBtn) sampleBtn.classList.add('hidden');
+                        if (loopControls) loopControls.classList.add('hidden');
+                        if (loopPopup) loopPopup.classList.add('hidden');
+                    }
+                });
+            }
+        });
+
+        // Helper function to setup manual shift+drag region selection
+        function setupRegionSelection(uniqueId, wavesurfer, regions, onRegionCreated, onRegionUpdated) {
+            const waveformEl = document.getElementById(`waveform-${uniqueId}`);
+            const waveformContainer = waveformEl.parentElement;
+            let isDragging = false;
+            let startTime = 0;
+            let startX = 0;
+            let previewEl = null;
+
+            // Create preview overlay element
+            function createPreviewOverlay() {
+                const overlay = document.createElement('div');
+                overlay.className = 'absolute top-0 h-full pointer-events-none rounded';
+                overlay.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
+                overlay.style.border = '1px solid rgba(16, 185, 129, 0.6)';
+                overlay.style.zIndex = '10';
+                return overlay;
+            }
+
+            // Create loop preview popup with precision time controls
+            function createLoopPopup() {
+                const existingPopup = document.getElementById(`loop-popup-${uniqueId}`);
+                if (existingPopup) existingPopup.remove();
+
+                const region = activeRegions[uniqueId];
+                const startVal = region ? formatTimePrecise(region.start) : '0:00.000';
+                const endVal = region ? formatTimePrecise(region.end) : '0:00.000';
+
+                const popup = document.createElement('div');
+                popup.id = `loop-popup-${uniqueId}`;
+                popup.className = 'absolute flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800/95 border border-emerald-500/50 shadow-lg z-20';
+                popup.style.top = '-52px';
+                popup.innerHTML = `
+                    <!-- Start time control -->
+                    <div class="flex items-center gap-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Start</span>
+                        <div class="flex items-center">
+                            <input type="text" class="time-input-start w-[72px] px-1.5 py-0.5 text-xs font-mono text-emerald-400 bg-gray-900/80 border border-gray-700 rounded-l focus:outline-none focus:border-emerald-500" value="${startVal}">
+                            <div class="flex flex-col border-y border-r border-gray-700 rounded-r">
+                                <button class="time-up-start px-1 py-0 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-400 transition-colors leading-none" title="Increase">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/>
+                                    </svg>
+                                </button>
+                                <button class="time-down-start px-1 py-0 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-400 transition-colors leading-none" title="Decrease">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- End time control -->
+                    <div class="flex items-center gap-1">
+                        <span class="text-[10px] text-gray-500 uppercase">End</span>
+                        <div class="flex items-center">
+                            <input type="text" class="time-input-end w-[72px] px-1.5 py-0.5 text-xs font-mono text-emerald-400 bg-gray-900/80 border border-gray-700 rounded-l focus:outline-none focus:border-emerald-500" value="${endVal}">
+                            <div class="flex flex-col border-y border-r border-gray-700 rounded-r">
+                                <button class="time-up-end px-1 py-0 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-400 transition-colors leading-none" title="Increase">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/>
+                                    </svg>
+                                </button>
+                                <button class="time-down-end px-1 py-0 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-400 transition-colors leading-none" title="Decrease">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Divider -->
+                    <div class="w-px h-6 bg-gray-700"></div>
+                    <!-- Loop controls -->
+                    <button class="loop-play-btn p-1.5 rounded hover:bg-emerald-500/20 text-emerald-400 transition-colors" title="Loop preview">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/>
+                        </svg>
+                    </button>
+                    <button class="loop-stop-btn hidden p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors" title="Stop loop">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+                            <path d="M5 6.5A1.5 1.5 0 0 1 6.5 5h3A1.5 1.5 0 0 1 11 6.5v3A1.5 1.5 0 0 1 9.5 11h-3A1.5 1.5 0 0 1 5 9.5z"/>
+                        </svg>
+                    </button>
+                    <!-- Duration display -->
+                    <span class="text-xs text-emerald-400 font-mono loop-duration min-w-[48px]"></span>
+                `;
+                waveformContainer.appendChild(popup);
+
+                const startInput = popup.querySelector('.time-input-start');
+                const endInput = popup.querySelector('.time-input-end');
+                const duration = wavesurfer.getDuration();
+
+                // Increment step in seconds (10ms)
+                const STEP = 0.01;
+
+                // Update region from input values
+                function updateRegionFromInputs() {
+                    const region = activeRegions[uniqueId];
+                    if (!region) return;
+
+                    const newStart = parseTimePrecise(startInput.value);
+                    const newEnd = parseTimePrecise(endInput.value);
+
+                    if (newStart !== null && newEnd !== null && newStart < newEnd && newStart >= 0 && newEnd <= duration) {
+                        region.setOptions({ start: newStart, end: newEnd });
+                        updatePopupPosition();
+                        if (onRegionUpdated) onRegionUpdated(region);
+                    }
+                }
+
+                // Update inputs from region
+                function updateInputsFromRegion() {
+                    const region = activeRegions[uniqueId];
+                    if (!region) return;
+                    startInput.value = formatTimePrecise(region.start);
+                    endInput.value = formatTimePrecise(region.end);
+                }
+
+                // Adjust time with bounds checking
+                function adjustTime(isStart, delta) {
+                    const region = activeRegions[uniqueId];
+                    if (!region) return;
+
+                    if (isStart) {
+                        const newStart = Math.max(0, Math.min(region.start + delta, region.end - STEP));
+                        region.setOptions({ start: newStart });
+                    } else {
+                        const newEnd = Math.min(duration, Math.max(region.end + delta, region.start + STEP));
+                        region.setOptions({ end: newEnd });
+                    }
+                    updateInputsFromRegion();
+                    updatePopupPosition();
+                    if (onRegionUpdated) onRegionUpdated(region);
+                }
+
+                // Input change handlers
+                startInput.addEventListener('change', updateRegionFromInputs);
+                endInput.addEventListener('change', updateRegionFromInputs);
+
+                // Prevent space from triggering play/pause when typing
+                startInput.addEventListener('keydown', (e) => e.stopPropagation());
+                endInput.addEventListener('keydown', (e) => e.stopPropagation());
+
+                // Chevron handlers - start time
+                popup.querySelector('.time-up-start').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    adjustTime(true, STEP);
+                });
+                popup.querySelector('.time-down-start').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    adjustTime(true, -STEP);
+                });
+
+                // Chevron handlers - end time
+                popup.querySelector('.time-up-end').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    adjustTime(false, STEP);
+                });
+                popup.querySelector('.time-down-end').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    adjustTime(false, -STEP);
+                });
+
+                // Loop play button handler
+                popup.querySelector('.loop-play-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    startLoopPreview();
+                });
+
+                // Stop button handler
+                popup.querySelector('.loop-stop-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    stopLoopPreview();
+                });
+
+                // Store updateInputsFromRegion for external use
+                popup.updateInputsFromRegion = updateInputsFromRegion;
+
+                return popup;
+            }
+
+            // Start loop preview
+            function startLoopPreview() {
+                const region = activeRegions[uniqueId];
+                if (!region) return;
+
+                // Stop any existing loop
+                stopLoopPreview();
+
+                loopPreviewState.isLooping = true;
+                loopPreviewState.currentId = uniqueId;
+                loopPreviewState.wavesurfer = wavesurfer;
+
+                // Update UI
+                const popup = document.getElementById(`loop-popup-${uniqueId}`);
+                if (popup) {
+                    popup.querySelector('.loop-play-btn').classList.add('hidden');
+                    popup.querySelector('.loop-stop-btn').classList.remove('hidden');
+                }
+
+                // Play region and loop it
+                const playLoop = () => {
+                    if (loopPreviewState.isLooping && loopPreviewState.currentId === uniqueId) {
+                        const currentRegion = activeRegions[uniqueId];
+                        if (currentRegion) {
+                            wavesurfer.setTime(currentRegion.start);
+                            wavesurfer.play();
+                        }
+                    }
+                };
+
+                // Listen for when playback reaches end of region
+                const checkPosition = () => {
+                    if (!loopPreviewState.isLooping || loopPreviewState.currentId !== uniqueId) return;
+                    const currentRegion = activeRegions[uniqueId];
+                    if (currentRegion && wavesurfer.getCurrentTime() >= currentRegion.end) {
+                        playLoop();
+                    }
+                    if (loopPreviewState.isLooping) {
+                        requestAnimationFrame(checkPosition);
+                    }
+                };
+
+                playLoop();
+                requestAnimationFrame(checkPosition);
+            }
+
+            // Update popup position based on region
+            function updatePopupPosition() {
+                const region = activeRegions[uniqueId];
+                const popup = document.getElementById(`loop-popup-${uniqueId}`);
+                if (!region || !popup) return;
+
+                const duration = wavesurfer.getDuration();
+                const containerWidth = waveformEl.offsetWidth;
+                const regionMidpoint = ((region.start + region.end) / 2 / duration) * containerWidth;
+                const popupWidth = popup.offsetWidth;
+
+                // Position popup centered above region, but keep within bounds
+                let left = regionMidpoint - (popupWidth / 2);
+                left = Math.max(0, Math.min(left, containerWidth - popupWidth));
+                popup.style.left = `${left}px`;
+
+                // Update duration display
+                const durationSpan = popup.querySelector('.loop-duration');
+                if (durationSpan) {
+                    durationSpan.textContent = `${(region.end - region.start).toFixed(2)}s`;
+                }
+
+                // Update input fields if popup has the function
+                if (popup.updateInputsFromRegion) {
+                    popup.updateInputsFromRegion();
+                }
+            }
+
+            // Show crosshair cursor when shift is held over waveform
+            waveformEl.addEventListener('mouseenter', (e) => {
+                if (e.shiftKey) waveformEl.style.cursor = 'crosshair';
+            });
+
+            waveformEl.addEventListener('mousemove', (e) => {
+                if (!isDragging) {
+                    waveformEl.style.cursor = e.shiftKey ? 'crosshair' : 'pointer';
+                }
+            });
+
+            waveformEl.addEventListener('mousedown', (e) => {
+                if (!e.shiftKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                // Stop any active loop preview
+                stopLoopPreview();
+
+                isDragging = true;
+                const rect = waveformEl.getBoundingClientRect();
+                startX = e.clientX - rect.left;
+                const duration = wavesurfer.getDuration();
+                startTime = (startX / rect.width) * duration;
+                waveformEl.style.cursor = 'crosshair';
+
+                // Create and show preview overlay
+                previewEl = createPreviewOverlay();
+                previewEl.style.left = `${startX}px`;
+                previewEl.style.width = '0px';
+                waveformContainer.appendChild(previewEl);
+
+                // Remove existing region and popup
+                if (activeRegions[uniqueId]) {
+                    activeRegions[uniqueId].remove();
+                    activeRegions[uniqueId] = null;
+                }
+                const existingPopup = document.getElementById(`loop-popup-${uniqueId}`);
+                if (existingPopup) existingPopup.classList.add('hidden');
+            });
+
+            // Update preview during drag
+            const handleMouseMove = (e) => {
+                if (!isDragging || !previewEl) return;
+
+                const rect = waveformEl.getBoundingClientRect();
+                const currentX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+
+                const left = Math.min(startX, currentX);
+                const width = Math.abs(currentX - startX);
+
+                previewEl.style.left = `${left}px`;
+                previewEl.style.width = `${width}px`;
+            };
+
+            document.addEventListener('mousemove', handleMouseMove);
+
+            const handleMouseUp = (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                waveformEl.style.cursor = 'pointer';
+
+                // Remove preview overlay
+                if (previewEl) {
+                    previewEl.remove();
+                    previewEl = null;
+                }
+
+                const rect = waveformEl.getBoundingClientRect();
+                const endX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+                const duration = wavesurfer.getDuration();
+                const endTime = (endX / rect.width) * duration;
+
+                // Only create region if there's meaningful selection (> 0.1s)
+                const regionStart = Math.min(startTime, endTime);
+                const regionEnd = Math.max(startTime, endTime);
+
+                if (regionEnd - regionStart > 0.1) {
+                    // Create new region
+                    const region = regions.addRegion({
+                        start: regionStart,
+                        end: regionEnd,
+                        color: 'rgba(16, 185, 129, 0.3)',
+                        drag: true,
+                        resize: true
+                    });
+
+                    activeRegions[uniqueId] = region;
+
+                    // Create and show loop popup
+                    const popup = createLoopPopup();
+                    popup.classList.remove('hidden');
+                    updatePopupPosition();
+
+                    if (onRegionCreated) onRegionCreated(region);
+                }
+            };
+
+            document.addEventListener('mouseup', handleMouseUp);
+
+            // Update popup when region is modified (by dragging)
+            regions.on('region-updated', (region) => {
+                if (activeRegions[uniqueId] === region) {
+                    updatePopupPosition();
+                    if (onRegionUpdated) onRegionUpdated(region);
+                }
+            });
+        }
+
         // Load crate, samples, and loops on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadCrate();
@@ -415,17 +829,17 @@
                 row.innerHTML = `
                     <div class="crate-row-header glass rounded-xl p-4 cursor-pointer hover:border-indigo-500/50 border border-transparent transition-all"
                          onclick="toggleCrateRow(${track.id}, this)">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center space-x-4">
-                                <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                        <div class="flex items-center justify-between gap-4">
+                            <div class="flex items-center space-x-4 min-w-0 flex-1">
+                                <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
                                     <span class="text-xl">📁</span>
                                 </div>
-                                <div>
-                                    <h3 class="font-semibold text-white">${track.name}</h3>
+                                <div class="min-w-0">
+                                    <h3 class="font-semibold text-white truncate">${track.name}</h3>
                                     <p class="text-sm text-gray-400">${track.stem_count} stems</p>
                                 </div>
                             </div>
-                            <div class="flex items-center space-x-6 text-sm">
+                            <div class="flex items-center space-x-6 text-sm flex-shrink-0">
                                 <div class="text-gray-400">
                                     <span class="text-indigo-400 font-mono">${track.bpm ? Math.round(track.bpm) : '—'}</span> BPM
                                 </div>
@@ -540,9 +954,9 @@
                                 </a>
                             </div>
                         </div>
-                        <div class="text-xs text-gray-500 mb-2">Click and drag on waveform to select a sample region</div>
+                        <div class="text-xs text-gray-500 mb-2">Shift + drag to select region | Esc to clear</div>
                         <div id="waveform-container-${originalId}" class="relative w-full">
-                            <div id="waveform-${originalId}" class="w-full h-16 rounded-lg overflow-hidden cursor-crosshair"></div>
+                            <div id="waveform-${originalId}" class="w-full h-16 rounded-lg overflow-hidden cursor-pointer"></div>
                             <div id="tooltip-${originalId}" class="absolute hidden pointer-events-none px-2 py-1 rounded bg-gray-900 text-white text-xs font-mono shadow-lg border border-white/20 whitespace-nowrap z-10" style="transform: translateX(-50%); top: -28px;"></div>
                         </div>
                         <div class="flex items-center justify-between mt-3">
@@ -584,17 +998,16 @@
                     originalWs.trackName = track.name;
                     originalWs.stemName = 'original';
 
-                    let originalActiveRegion = null;
-
                     originalWs.on('ready', () => {
                         document.getElementById(`duration-${originalId}`).textContent = formatTime(originalWs.getDuration());
-                        originalRegions.enableDragSelection({ color: 'rgba(16, 185, 129, 0.3)' });
 
-                        // Setup tooltip
+                        // Setup tooltip and shift+drag for region selection
                         const waveformEl = document.getElementById(`waveform-${originalId}`);
+                        const waveformContainer = document.getElementById(`waveform-container-${originalId}`);
                         const tooltip = document.getElementById(`tooltip-${originalId}`);
                         const duration = originalWs.getDuration();
 
+                        // Setup tooltip
                         waveformEl.addEventListener('mousemove', (e) => {
                             const rect = waveformEl.getBoundingClientRect();
                             const x = e.clientX - rect.left;
@@ -609,30 +1022,25 @@
                         });
 
                         waveformEl.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
-                    });
 
-                    originalRegions.on('region-created', (region) => {
-                        if (originalActiveRegion && originalActiveRegion !== region) originalActiveRegion.remove();
-                        originalActiveRegion = region;
-                        region.setOptions({ color: 'rgba(16, 185, 129, 0.3)', drag: true, resize: true });
-
-                        const sampleBtn = document.getElementById(`sample-btn-${originalId}`);
-                        const sampleBtnText = document.getElementById(`sample-btn-text-${originalId}`);
-                        sampleBtn.classList.remove('hidden');
-                        sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
-
-                        document.getElementById(`loop-controls-${originalId}`).classList.remove('hidden');
-                    });
-
-                    originalRegions.on('region-updated', (region) => {
-                        document.getElementById(`sample-btn-text-${originalId}`).textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                        // Setup shift+drag region selection
+                        setupRegionSelection(originalId, originalWs, originalRegions, (region) => {
+                            const sampleBtn = document.getElementById(`sample-btn-${originalId}`);
+                            const sampleBtnText = document.getElementById(`sample-btn-text-${originalId}`);
+                            sampleBtn.classList.remove('hidden');
+                            sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                            document.getElementById(`loop-controls-${originalId}`).classList.remove('hidden');
+                        }, (region) => {
+                            // Update sample button when region is adjusted
+                            document.getElementById(`sample-btn-text-${originalId}`).textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                        });
                     });
 
                     originalRegions.on('region-double-clicked', (region) => region.play());
 
                     // Sample button handler for original
                     document.getElementById(`sample-btn-${originalId}`).onclick = async function() {
-                        if (!originalActiveRegion) return;
+                        if (!activeRegions[originalId]) return;
                         this.disabled = true;
                         const sampleBtnText = document.getElementById(`sample-btn-text-${originalId}`);
                         const originalText = sampleBtnText.textContent;
@@ -642,8 +1050,8 @@
                             const formData = new FormData();
                             formData.append('track_name', originalWs.trackName);
                             formData.append('stem_name', 'original');
-                            formData.append('start_time', originalActiveRegion.start);
-                            formData.append('end_time', originalActiveRegion.end);
+                            formData.append('start_time', activeRegions[originalId].start);
+                            formData.append('end_time', activeRegions[originalId].end);
 
                             const response = await fetch('/sample', { method: 'POST', body: formData });
                             if (response.ok) {
@@ -672,12 +1080,12 @@
 
                     // Loop button handler for original
                     document.getElementById(`stem-loop-btn-${originalId}`).onclick = async function() {
-                        if (!originalActiveRegion) return;
+                        if (!activeRegions[originalId]) return;
                         const loopCount = parseInt(document.getElementById(`stem-loop-count-${originalId}`).value);
                         this.disabled = true;
                         this.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30 60"/></svg>';
 
-                        await createLoop('stem', originalWs.trackName, 'original', originalActiveRegion.start, originalActiveRegion.end, loopCount);
+                        await createLoop('stem', originalWs.trackName, 'original', activeRegions[originalId].start, activeRegions[originalId].end, loopCount);
 
                         this.disabled = false;
                         this.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
@@ -751,9 +1159,9 @@
                                 </a>
                             </div>
                         </div>
-                        <div class="text-xs text-gray-500 mb-2">Click and drag on waveform to select a sample region</div>
+                        <div class="text-xs text-gray-500 mb-2">Shift + drag to select region | Esc to clear</div>
                         <div id="waveform-container-${uniqueId}" class="relative w-full">
-                            <div id="waveform-${uniqueId}" class="w-full h-16 rounded-lg overflow-hidden cursor-crosshair"></div>
+                            <div id="waveform-${uniqueId}" class="w-full h-16 rounded-lg overflow-hidden cursor-pointer"></div>
                             <div id="tooltip-${uniqueId}" class="absolute hidden pointer-events-none px-2 py-1 rounded bg-gray-900 text-white text-xs font-mono shadow-lg border border-white/20 whitespace-nowrap z-10" style="transform: translateX(-50%); top: -28px;"></div>
                         </div>
                         <div class="flex items-center justify-between mt-3">
@@ -797,17 +1205,11 @@
                     ws.trackName = track.name;
                     ws.stemName = stem.name;
 
-                    // Track current region
-                    let activeRegion = null;
+                    // Region is tracked globally via activeRegions[uniqueId]
 
-                    // Enable region creation on drag
+                    // Enable region creation on shift+drag
                     ws.on('ready', () => {
                         document.getElementById(`duration-${uniqueId}`).textContent = formatTime(ws.getDuration());
-
-                        // Enable drag selection to create regions
-                        regions.enableDragSelection({
-                            color: 'rgba(16, 185, 129, 0.3)'  // Emerald with transparency
-                        });
 
                         // Setup time tooltip on hover
                         const waveformContainer = document.getElementById(`waveform-container-${uniqueId}`);
@@ -815,19 +1217,17 @@
                         const tooltip = document.getElementById(`tooltip-${uniqueId}`);
                         const duration = ws.getDuration();
 
+                        // Setup tooltip
                         waveformEl.addEventListener('mousemove', (e) => {
                             const rect = waveformEl.getBoundingClientRect();
                             const x = e.clientX - rect.left;
                             const percentage = x / rect.width;
                             const time = percentage * duration;
 
-                            // Format time with milliseconds for precision
                             const mins = Math.floor(time / 60);
                             const secs = Math.floor(time % 60);
                             const ms = Math.floor((time % 1) * 1000);
                             tooltip.textContent = `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
-
-                            // Position tooltip at cursor
                             tooltip.style.left = `${x}px`;
                             tooltip.classList.remove('hidden');
                         });
@@ -835,39 +1235,19 @@
                         waveformEl.addEventListener('mouseleave', () => {
                             tooltip.classList.add('hidden');
                         });
-                    });
 
-                    // Handle region creation
-                    regions.on('region-created', (region) => {
-                        // Remove previous region if exists
-                        if (activeRegion && activeRegion !== region) {
-                            activeRegion.remove();
-                        }
-                        activeRegion = region;
-
-                        // Update region style
-                        region.setOptions({
-                            color: 'rgba(16, 185, 129, 0.3)',
-                            drag: true,
-                            resize: true
+                        // Setup shift+drag region selection
+                        setupRegionSelection(uniqueId, ws, regions, (region) => {
+                            const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
+                            const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                            sampleBtn.classList.remove('hidden');
+                            sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                            document.getElementById(`loop-controls-${uniqueId}`).classList.remove('hidden');
+                        }, (region) => {
+                            // Update sample button when region is adjusted
+                            const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                            sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
                         });
-
-                        // Show sample button with duration
-                        const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
-                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
-                        sampleBtn.classList.remove('hidden');
-                        const duration = region.end - region.start;
-                        sampleBtnText.textContent = `Sample (${duration.toFixed(2)}s)`;
-
-                        // Show loop controls
-                        document.getElementById(`loop-controls-${uniqueId}`).classList.remove('hidden');
-                    });
-
-                    // Update button when region is updated (dragged/resized)
-                    regions.on('region-updated', (region) => {
-                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
-                        const duration = region.end - region.start;
-                        sampleBtnText.textContent = `Sample (${duration.toFixed(2)}s)`;
                     });
 
                     // Double-click region to play it
@@ -878,7 +1258,7 @@
                     // Sample button click handler
                     const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
                     sampleBtn.onclick = async () => {
-                        if (!activeRegion) return;
+                        if (!activeRegions[uniqueId]) return;
 
                         sampleBtn.disabled = true;
                         const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
@@ -889,8 +1269,8 @@
                             const formData = new FormData();
                             formData.append('track_name', ws.trackName);
                             formData.append('stem_name', ws.stemName);
-                            formData.append('start_time', activeRegion.start);
-                            formData.append('end_time', activeRegion.end);
+                            formData.append('start_time', activeRegions[uniqueId].start);
+                            formData.append('end_time', activeRegions[uniqueId].end);
 
                             const response = await fetch('/sample', {
                                 method: 'POST',
@@ -930,7 +1310,7 @@
                     const stemLoopCountSelect = document.getElementById(`stem-loop-count-${uniqueId}`);
 
                     stemLoopBtn.onclick = async () => {
-                        if (!activeRegion) return;
+                        if (!activeRegions[uniqueId]) return;
 
                         const loopCount = parseInt(stemLoopCountSelect.value);
                         stemLoopBtn.disabled = true;
@@ -940,8 +1320,8 @@
                             'stem',
                             ws.trackName,
                             ws.stemName,
-                            activeRegion.start,
-                            activeRegion.end,
+                            activeRegions[uniqueId].start,
+                            activeRegions[uniqueId].end,
                             loopCount
                         );
 
@@ -1097,17 +1477,25 @@
                             </button>
                         </div>
                     </div>
-                    <div id="waveform-${uniqueId}" class="w-full h-12 rounded-lg overflow-hidden"></div>
+                    <div class="relative">
+                        <div id="waveform-${uniqueId}" class="w-full h-12 rounded-lg overflow-hidden"></div>
+                    </div>
                     <div class="flex items-center justify-between mt-3">
-                        <button id="play-btn-${uniqueId}"
-                                class="w-8 h-8 rounded-full ${icon.color} flex items-center justify-center hover:scale-105 transition-transform">
-                            <svg id="play-icon-${uniqueId}" class="w-4 h-4 ${icon.text}" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M8 5v14l11-7z"/>
-                            </svg>
-                            <svg id="pause-icon-${uniqueId}" class="w-4 h-4 ${icon.text} hidden" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                            </svg>
-                        </button>
+                        <div class="flex items-center space-x-2">
+                            <button id="play-btn-${uniqueId}"
+                                    class="w-8 h-8 rounded-full ${icon.color} flex items-center justify-center hover:scale-105 transition-transform">
+                                <svg id="play-icon-${uniqueId}" class="w-4 h-4 ${icon.text}" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                                <svg id="pause-icon-${uniqueId}" class="w-4 h-4 ${icon.text} hidden" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                                </svg>
+                            </button>
+                            <!-- Sample button (hidden until region selected) -->
+                            <button id="sample-btn-${uniqueId}" class="hidden px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-medium transition-colors">
+                                <span id="sample-btn-text-${uniqueId}">Sample</span>
+                            </button>
+                        </div>
                         <div class="text-xs text-gray-400 font-mono">
                             <span id="time-${uniqueId}">0:00</span> /
                             <span id="duration-${uniqueId}">${formatTime(sample.duration)}</span>
@@ -1158,6 +1546,68 @@
 
                 ws.on('ready', () => {
                     document.getElementById(`duration-${uniqueId}`).textContent = formatTime(ws.getDuration());
+
+                    // Register regions plugin and setup region selection
+                    const regions = ws.registerPlugin(WaveSurfer.Regions.create());
+
+                    setupRegionSelection(uniqueId, ws, regions, (region) => {
+                        // Show sample button when region created
+                        const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        sampleBtn.classList.remove('hidden');
+                        sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                    }, (region) => {
+                        // Update sample button when region adjusted
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
+                    });
+
+                    // Double-click region to play
+                    regions.on('region-double-clicked', (region) => region.play());
+
+                    // Sample button click handler - create sample from sample region
+                    document.getElementById(`sample-btn-${uniqueId}`).onclick = async function() {
+                        if (!activeRegions[uniqueId]) return;
+                        this.disabled = true;
+                        const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        const originalText = sampleBtnText.textContent;
+                        sampleBtnText.textContent = 'Creating...';
+
+                        // Calculate absolute times within the original stem
+                        const absoluteStart = sample.start_time + activeRegions[uniqueId].start;
+                        const absoluteEnd = sample.start_time + activeRegions[uniqueId].end;
+
+                        try {
+                            const formData = new FormData();
+                            formData.append('track_name', sample.track_name);
+                            formData.append('stem_name', sample.stem_name);
+                            formData.append('start_time', absoluteStart);
+                            formData.append('end_time', absoluteEnd);
+
+                            const response = await fetch('/sample', { method: 'POST', body: formData });
+                            if (response.ok) {
+                                const data = await response.json();
+                                const link = document.createElement('a');
+                                link.href = data.sample_url;
+                                link.download = data.sample_name;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                sampleBtnText.textContent = 'Downloaded!';
+                                setTimeout(() => sampleBtnText.textContent = originalText, 2000);
+                                loadSamples();
+                            } else {
+                                const error = await response.json();
+                                alert('Failed to create sample: ' + (error.detail || 'Unknown error'));
+                                sampleBtnText.textContent = originalText;
+                            }
+                        } catch (error) {
+                            alert('Failed to create sample: ' + error.message);
+                            sampleBtnText.textContent = originalText;
+                        } finally {
+                            this.disabled = false;
+                        }
+                    };
                 });
 
                 // Loop button handler
@@ -1548,6 +1998,24 @@
             const mins = Math.floor(seconds / 60);
             const secs = Math.floor(seconds % 60);
             return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Precision time format for sample creation (M:SS.mmm)
+        function formatTimePrecise(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            const ms = Math.floor((seconds % 1) * 1000);
+            return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+        }
+
+        // Parse precision time string back to seconds
+        function parseTimePrecise(timeStr) {
+            const match = timeStr.match(/^(\d+):(\d{2})\.(\d{3})$/);
+            if (!match) return null;
+            const mins = parseInt(match[1], 10);
+            const secs = parseInt(match[2], 10);
+            const ms = parseInt(match[3], 10);
+            return mins * 60 + secs + ms / 1000;
         }
 
         // Show preview for uploaded file

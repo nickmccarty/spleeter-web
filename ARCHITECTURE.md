@@ -359,11 +359,22 @@ Each audio card:
 |  [>]  0:00 / 3:45                        |     with Regions plugin
 +------------------------------------------+
 
-Region Selection:
-1. User drags on waveform
-2. Regions plugin creates region
-3. Sample/Loop buttons appear
-4. User clicks to extract/loop
+Interaction Modes:
+- Normal click:     Seek to position in track
+- Shift + drag:     Create selection region for sampling
+
+Region Selection Flow:
+1. User holds Shift and drags on waveform
+2. Visual preview overlay shows selection in real-time
+3. On mouse release, region is created
+4. Loop preview popup appears with controls:
+   +---------------------------+
+   | [Loop] [Stop] | 0:01.234  |  <- Duration display
+   +---------------------------+
+5. Click loop icon to preview selection on loop
+6. Adjust region edges while looping (updates in real-time)
+7. Click Sample button to extract, or select loop count for loops
+8. Press Esc to clear selection and stop loop preview
 ```
 
 ---
