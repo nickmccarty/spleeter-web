@@ -515,8 +515,72 @@
                     </button>
                     <!-- Duration display -->
                     <span class="text-xs text-emerald-400 font-mono loop-duration min-w-[48px]"></span>
+                    <!-- Drag handle -->
+                    <div class="drag-handle cursor-grab active:cursor-grabbing pl-1 border-l border-gray-700 ml-1 text-gray-500 hover:text-gray-300 transition-colors" title="Drag to move">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
+                        </svg>
+                    </div>
                 `;
                 waveformContainer.appendChild(popup);
+
+                // Make popup draggable via drag handle
+                const dragHandle = popup.querySelector('.drag-handle');
+                let isDraggingPopup = false;
+                let dragStartX = 0;
+                let dragStartY = 0;
+                let popupStartLeft = 0;
+                let popupStartTop = 0;
+
+                dragHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    isDraggingPopup = true;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    popupStartLeft = popup.offsetLeft;
+                    popupStartTop = popup.offsetTop;
+                    dragHandle.style.cursor = 'grabbing';
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (!isDraggingPopup) return;
+                    const dx = e.clientX - dragStartX;
+                    const dy = e.clientY - dragStartY;
+
+                    // Calculate new position
+                    let newLeft = popupStartLeft + dx;
+                    let newTop = popupStartTop + dy;
+
+                    // Get bounds of the stem card (parent of waveformContainer)
+                    const card = waveformContainer.closest('.stem-card');
+                    if (card) {
+                        const cardRect = card.getBoundingClientRect();
+                        const containerRect = waveformContainer.getBoundingClientRect();
+                        const popupRect = popup.getBoundingClientRect();
+
+                        // Calculate bounds relative to waveformContainer
+                        const minLeft = -(containerRect.left - cardRect.left);
+                        const maxLeft = (cardRect.right - containerRect.left) - popupRect.width;
+                        const minTop = -(containerRect.top - cardRect.top);
+                        const maxTop = (cardRect.bottom - containerRect.top) - popupRect.height;
+
+                        newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+                        newTop = Math.max(minTop, Math.min(newTop, maxTop));
+                    }
+
+                    popup.style.left = `${newLeft}px`;
+                    popup.style.top = `${newTop}px`;
+                });
+
+                document.addEventListener('mouseup', () => {
+                    if (isDraggingPopup) {
+                        isDraggingPopup = false;
+                        dragHandle.style.cursor = 'grab';
+                        // Mark popup as manually positioned to prevent auto-repositioning
+                        popup.manuallyPositioned = true;
+                    }
+                });
 
                 const startInput = popup.querySelector('.time-input-start');
                 const endInput = popup.querySelector('.time-input-end');
@@ -573,25 +637,45 @@
                 startInput.addEventListener('keydown', (e) => e.stopPropagation());
                 endInput.addEventListener('keydown', (e) => e.stopPropagation());
 
+                // Helper for click-and-hold chevron behavior
+                function setupChevronHold(btn, isStart, delta) {
+                    let holdInterval = null;
+                    const INITIAL_DELAY = 400;  // ms before repeat starts
+                    const REPEAT_RATE = 50;     // ms between repeats
+
+                    const startHold = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        adjustTime(isStart, delta);  // Immediate first adjustment
+
+                        // Start repeating after initial delay
+                        holdInterval = setTimeout(() => {
+                            holdInterval = setInterval(() => {
+                                adjustTime(isStart, delta);
+                            }, REPEAT_RATE);
+                        }, INITIAL_DELAY);
+                    };
+
+                    const stopHold = () => {
+                        if (holdInterval) {
+                            clearTimeout(holdInterval);
+                            clearInterval(holdInterval);
+                            holdInterval = null;
+                        }
+                    };
+
+                    btn.addEventListener('mousedown', startHold);
+                    btn.addEventListener('mouseup', stopHold);
+                    btn.addEventListener('mouseleave', stopHold);
+                }
+
                 // Chevron handlers - start time
-                popup.querySelector('.time-up-start').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    adjustTime(true, STEP);
-                });
-                popup.querySelector('.time-down-start').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    adjustTime(true, -STEP);
-                });
+                setupChevronHold(popup.querySelector('.time-up-start'), true, STEP);
+                setupChevronHold(popup.querySelector('.time-down-start'), true, -STEP);
 
                 // Chevron handlers - end time
-                popup.querySelector('.time-up-end').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    adjustTime(false, STEP);
-                });
-                popup.querySelector('.time-down-end').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    adjustTime(false, -STEP);
-                });
+                setupChevronHold(popup.querySelector('.time-up-end'), false, STEP);
+                setupChevronHold(popup.querySelector('.time-down-end'), false, -STEP);
 
                 // Loop play button handler
                 popup.querySelector('.loop-play-btn').addEventListener('click', (e) => {
@@ -663,15 +747,18 @@
                 const popup = document.getElementById(`loop-popup-${uniqueId}`);
                 if (!region || !popup) return;
 
-                const duration = wavesurfer.getDuration();
-                const containerWidth = waveformEl.offsetWidth;
-                const regionMidpoint = ((region.start + region.end) / 2 / duration) * containerWidth;
-                const popupWidth = popup.offsetWidth;
+                // Only auto-position if popup hasn't been manually dragged
+                if (!popup.manuallyPositioned) {
+                    const duration = wavesurfer.getDuration();
+                    const containerWidth = waveformEl.offsetWidth;
+                    const regionMidpoint = ((region.start + region.end) / 2 / duration) * containerWidth;
+                    const popupWidth = popup.offsetWidth;
 
-                // Position popup centered above region, but keep within bounds
-                let left = regionMidpoint - (popupWidth / 2);
-                left = Math.max(0, Math.min(left, containerWidth - popupWidth));
-                popup.style.left = `${left}px`;
+                    // Position popup centered above region, but keep within bounds
+                    let left = regionMidpoint - (popupWidth / 2);
+                    left = Math.max(0, Math.min(left, containerWidth - popupWidth));
+                    popup.style.left = `${left}px`;
+                }
 
                 // Update duration display
                 const durationSpan = popup.querySelector('.loop-duration');
@@ -927,7 +1014,6 @@
                                     </span>
                                 </button>
                                 <div id="loop-controls-${originalId}" class="hidden flex items-center space-x-1 px-2 py-1 rounded-lg bg-purple-500/20">
-                                    <span class="text-purple-400 text-xs">🔁</span>
                                     <select id="stem-loop-count-${originalId}"
                                             class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
                                         <option value="2">x2</option>
@@ -938,8 +1024,8 @@
                                     <button id="stem-loop-btn-${originalId}"
                                             class="text-purple-400 hover:text-purple-300 transition-colors"
                                             title="Create loop from selection">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+                                            <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/>
                                         </svg>
                                     </button>
                                 </div>
@@ -1088,7 +1174,7 @@
                         await createLoop('stem', originalWs.trackName, 'original', activeRegions[originalId].start, activeRegions[originalId].end, loopCount);
 
                         this.disabled = false;
-                        this.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                        this.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/></svg>';
                     };
 
                     // Play/pause for original
@@ -1132,7 +1218,6 @@
                                     </span>
                                 </button>
                                 <div id="loop-controls-${uniqueId}" class="hidden flex items-center space-x-1 px-2 py-1 rounded-lg bg-purple-500/20">
-                                    <span class="text-purple-400 text-xs">🔁</span>
                                     <select id="stem-loop-count-${uniqueId}"
                                             class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
                                         <option value="2">x2</option>
@@ -1143,8 +1228,8 @@
                                     <button id="stem-loop-btn-${uniqueId}"
                                             class="text-purple-400 hover:text-purple-300 transition-colors"
                                             title="Create loop from selection">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+                                            <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/>
                                         </svg>
                                     </button>
                                 </div>
@@ -1326,7 +1411,7 @@
                         );
 
                         stemLoopBtn.disabled = false;
-                        stemLoopBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                        stemLoopBtn.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/></svg>';
                     };
 
                     // Play/pause
@@ -1441,23 +1526,6 @@
                             </div>
                         </div>
                         <div class="flex items-center space-x-2 flex-shrink-0">
-                            <div class="flex items-center space-x-1 bg-purple-500/10 rounded-lg px-2 py-1">
-                                <span class="text-purple-400 text-xs">🔁</span>
-                                <select id="loop-count-${uniqueId}"
-                                        class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
-                                    <option value="2">x2</option>
-                                    <option value="4" selected>x4</option>
-                                    <option value="8">x8</option>
-                                    <option value="16">x16</option>
-                                </select>
-                                <button id="loop-btn-${uniqueId}"
-                                        class="text-purple-400 hover:text-purple-300 transition-colors"
-                                        title="Create loop">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                    </svg>
-                                </button>
-                            </div>
                             <a href="/samples-files/${encodeURIComponent(sample.filename)}"
                                download="${sample.filename}"
                                class="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
@@ -1492,9 +1560,32 @@
                                 </svg>
                             </button>
                             <!-- Sample button (hidden until region selected) -->
-                            <button id="sample-btn-${uniqueId}" class="hidden px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-medium transition-colors">
-                                <span id="sample-btn-text-${uniqueId}">Sample</span>
+                            <button id="sample-btn-${uniqueId}" class="hidden px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-medium transition-colors" title="Download selected region as sample">
+                                <span class="flex items-center space-x-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                    </svg>
+                                    <span id="sample-btn-text-${uniqueId}">Sample</span>
+                                </span>
                             </button>
+                            <!-- Loop controls for region (hidden until region selected) -->
+                            <div id="loop-controls-${uniqueId}" class="hidden flex items-center space-x-1 bg-purple-500/10 rounded-lg px-2 py-1">
+                                <select id="region-loop-count-${uniqueId}"
+                                        class="bg-transparent text-purple-400 text-xs font-medium focus:outline-none cursor-pointer">
+                                    <option value="2">x2</option>
+                                    <option value="4" selected>x4</option>
+                                    <option value="8">x8</option>
+                                    <option value="16">x16</option>
+                                </select>
+                                <button id="region-loop-btn-${uniqueId}"
+                                        class="text-purple-400 hover:text-purple-300 transition-colors"
+                                        title="Create loop from selection">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/>
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         <div class="text-xs text-gray-400 font-mono">
                             <span id="time-${uniqueId}">0:00</span> /
@@ -1551,10 +1642,12 @@
                     const regions = ws.registerPlugin(WaveSurfer.Regions.create());
 
                     setupRegionSelection(uniqueId, ws, regions, (region) => {
-                        // Show sample button when region created
+                        // Show sample button and loop controls when region created
                         const sampleBtn = document.getElementById(`sample-btn-${uniqueId}`);
                         const sampleBtnText = document.getElementById(`sample-btn-text-${uniqueId}`);
+                        const loopControls = document.getElementById(`loop-controls-${uniqueId}`);
                         sampleBtn.classList.remove('hidden');
+                        loopControls.classList.remove('hidden');
                         sampleBtnText.textContent = `Sample (${(region.end - region.start).toFixed(2)}s)`;
                     }, (region) => {
                         // Update sample button when region adjusted
@@ -1608,31 +1701,31 @@
                             this.disabled = false;
                         }
                     };
+
+                    // Region loop button click handler - create loop from sample region
+                    document.getElementById(`region-loop-btn-${uniqueId}`).onclick = async function() {
+                        if (!activeRegions[uniqueId]) return;
+                        const loopCount = parseInt(document.getElementById(`region-loop-count-${uniqueId}`).value);
+                        this.disabled = true;
+                        this.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30 60"/></svg>';
+
+                        // Calculate absolute times within the original stem
+                        const absoluteStart = sample.start_time + activeRegions[uniqueId].start;
+                        const absoluteEnd = sample.start_time + activeRegions[uniqueId].end;
+
+                        const success = await createLoop(
+                            'stem',  // Use stem source since we're using absolute times
+                            sample.track_name,
+                            sample.stem_name,
+                            absoluteStart,
+                            absoluteEnd,
+                            loopCount
+                        );
+
+                        this.disabled = false;
+                        this.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/></svg>';
+                    };
                 });
-
-                // Loop button handler
-                const loopBtn = document.getElementById(`loop-btn-${uniqueId}`);
-                const loopCountSelect = document.getElementById(`loop-count-${uniqueId}`);
-
-                loopBtn.onclick = async () => {
-                    const loopCount = parseInt(loopCountSelect.value);
-                    loopBtn.disabled = true;
-                    loopBtn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30 60"/></svg>';
-
-                    // For samples, we use the full sample (start_time=0, end_time=duration)
-                    // But we pass the original track info for the loop filename
-                    const success = await createLoop(
-                        'sample',
-                        sample.track_name,
-                        sample.stem_name,
-                        sample.start_time,
-                        sample.end_time,
-                        loopCount
-                    );
-
-                    loopBtn.disabled = false;
-                    loopBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
-                };
 
                 sampleWavesurfers[sample.id] = ws;
             });
@@ -1704,15 +1797,15 @@
                 card.innerHTML = `
                     <div class="flex items-center justify-between mb-3 gap-3">
                         <div class="flex items-center space-x-3 min-w-0 flex-1">
-                            <div class="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-                                <span class="text-lg">🔁</span>
+                            <div class="w-10 h-10 rounded-lg ${icon.color} flex items-center justify-center flex-shrink-0">
+                                <span class="text-lg">${icon.emoji}</span>
                             </div>
                             <div class="min-w-0 flex-1">
                                 <div class="font-medium text-white truncate">${loop.track_name}</div>
                                 <div class="text-xs text-gray-400 truncate">
                                     <span class="${icon.text} capitalize">${loop.stem_name}</span>
                                     <span class="text-gray-500 ml-2">${loop.start_time.toFixed(2)}s - ${loop.end_time.toFixed(2)}s</span>
-                                    <span class="text-purple-400 ml-2">x${loop.loop_count}</span>
+                                    <span class="${icon.text} ml-2">x${loop.loop_count}</span>
                                     <span class="text-gray-500 ml-2">(${loop.duration.toFixed(2)}s total)</span>
                                 </div>
                             </div>
@@ -1740,11 +1833,11 @@
                     <div id="waveform-${uniqueId}" class="w-full h-12 rounded-lg overflow-hidden"></div>
                     <div class="flex items-center justify-between mt-3">
                         <button id="play-btn-${uniqueId}"
-                                class="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center hover:scale-105 transition-transform">
-                            <svg id="play-icon-${uniqueId}" class="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 24 24">
+                                class="w-8 h-8 rounded-full ${icon.color} flex items-center justify-center hover:scale-105 transition-transform">
+                            <svg id="play-icon-${uniqueId}" class="w-4 h-4 ${icon.text}" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M8 5v14l11-7z"/>
                             </svg>
-                            <svg id="pause-icon-${uniqueId}" class="w-4 h-4 text-purple-400 hidden" fill="currentColor" viewBox="0 0 24 24">
+                            <svg id="pause-icon-${uniqueId}" class="w-4 h-4 ${icon.text} hidden" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
                             </svg>
                         </button>
@@ -1759,8 +1852,8 @@
                 // Initialize WaveSurfer for this loop
                 const ws = WaveSurfer.create({
                     container: `#waveform-${uniqueId}`,
-                    waveColor: '#c084fc',
-                    progressColor: '#a855f7',
+                    waveColor: getComputedColor(icon.text),
+                    progressColor: adjustColor(getComputedColor(icon.text), 1.3),
                     cursorColor: '#ffffff',
                     barWidth: 2,
                     barGap: 1,
