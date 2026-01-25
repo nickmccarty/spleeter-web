@@ -72,20 +72,18 @@ conda create -n spleeter-web python=3.10
 conda activate spleeter-web
 ```
 
-### 3. Install FFmpeg
+### 3. Install FFmpeg and additional dependencies
 
 ```bash
 conda install -c conda-forge ffmpeg libsndfile
 ```
 
-### 4. Install Spleeter and dependencies
-
 ```bash
+# Install additional dependencies via pip
+pip install spleeter
+
 # Install web app dependencies
 pip install -r requirements.txt
-
-# Install additional spleeter dependency via poetry
-pip install spleeter
 ```
 
 ## Running the Application
