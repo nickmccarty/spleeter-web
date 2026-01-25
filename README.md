@@ -14,6 +14,8 @@ A sleek, modern web application that uses AI to separate audio tracks into indiv
 
 ## Features
 
+![](https://raw.githubusercontent.com/nickmccarty/nickmccarty.github.io/master/assets/images/fetch-track-by-url.gif)
+
 ### Audio Input
 - **Upload audio files** (MP3, WAV, FLAC, etc.) or **paste URLs** from YouTube, SoundCloud, and other platforms
 - **Audio preview** with interactive waveform visualization (powered by WaveSurfer.js)
@@ -66,14 +68,14 @@ cd spleeter-web
 ### 2. Create and activate a Conda environment
 
 ```bash
-conda create -n spleeter-web python=3.10 -y
+conda create -n spleeter-web python=3.10
 conda activate spleeter-web
 ```
 
 ### 3. Install FFmpeg
 
 ```bash
-conda install -c conda-forge ffmpeg -y
+conda install -c conda-forge ffmpeg libsndfile
 ```
 
 ### 4. Install Spleeter and dependencies
@@ -83,17 +85,13 @@ conda install -c conda-forge ffmpeg -y
 pip install -r requirements.txt
 
 # Install additional spleeter dependency via poetry
-git clone https://github.com/Deezer/spleeter
-cd spleeter
-pip install poetry
-poetry install
+pip install spleeter
 ```
 
 ## Running the Application
 
 ```bash
-cd spleeter
-poetry run python -m uvicorn app.main:app --reload --app-dir ..
+uvicorn main:app --reload
 ```
 
 Then open http://localhost:8000 in your browser.
