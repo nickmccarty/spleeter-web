@@ -8,6 +8,10 @@ A sleek, modern web application that uses AI to separate audio tracks into indiv
 
 > For detailed technical documentation including data flow diagrams, database schemas, and API specifications, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+| Track Upload Screen | Fetch URL Screen |
+|---|---|
+| [![](https://raw.githubusercontent.com/nickmccarty/nickmccarty.github.io/master/assets/images/track-upload-screen.png)](https://raw.githubusercontent.com/nickmccarty/nickmccarty.github.io/master/assets/images/track-upload-screen.png) | [![](https://raw.githubusercontent.com/nickmccarty/nickmccarty.github.io/master/assets/images/fetch-url-screen.png)](https://raw.githubusercontent.com/nickmccarty/nickmccarty.github.io/master/assets/images/fetch-url-screen.png) | 
+
 ## Features
 
 ### Audio Input
