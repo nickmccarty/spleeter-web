@@ -89,6 +89,7 @@ pip install -r requirements.txt
 ## Running the Application
 
 ```bash
+cd app
 uvicorn main:app --reload
 ```
 
